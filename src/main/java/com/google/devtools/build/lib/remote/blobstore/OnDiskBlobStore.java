@@ -18,6 +18,7 @@ import static com.google.devtools.build.lib.remote.util.Utils.getFromFuture;
 import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
+import com.google.devtools.build.lib.remote.RemoteOptions;
 import com.google.devtools.build.lib.vfs.Dirent;
 import com.google.devtools.build.lib.vfs.Path;
 import com.google.devtools.build.lib.vfs.Symlinks;
@@ -26,8 +27,6 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -36,14 +35,14 @@ public final class OnDiskBlobStore implements SimpleBlobStore {
   private final Path root;
   private Optional<Long> cacheSize = Optional.of(-1L); // In bytes.
   private Optional<Long> maxCacheSize = Optional.empty(); // In bytes.
-  private double lowerBound = 0.85;
-  private double upperBound = 0.95;
+  private double lowerBound = 0.90;
 
-  public OnDiskBlobStore(Path root) {
-    // TODO(robinnabel): Set the max cache size with a command line flag.
+  public OnDiskBlobStore(Path root, RemoteOptions options) {
+    this.root = root;
+    // Set the max cache size with a command line flag.
+    maxCacheSize = Optional.of(Math.round(options.experimentalDiskCacheSize * Math.pow(1024, 3)));
     // Purge cache directory if needed.
     ensureCacheSize();
-    this.root = root;
   }
 
   @Override
@@ -80,6 +79,9 @@ public final class OnDiskBlobStore implements SimpleBlobStore {
     if (target.exists()) {
       return;
     }
+    // Cache purged before write to ensure cache size never exceeded.
+    cacheSize = Optional.of(cacheSize.get() + length);
+    ensureCacheSize();
 
     // Write a temporary file first, and then rename, to avoid data corruption in case of a crash.
     Path temp = toPath(UUID.randomUUID().toString());
@@ -89,10 +91,6 @@ public final class OnDiskBlobStore implements SimpleBlobStore {
     // TODO(ulfjack): Fsync temp here before we rename it to avoid data loss in the case of machine
     // crashes (the OS may reorder the writes and the rename).
     temp.renameTo(target);
-
-    // Update cache size.
-    cacheSize = Optional.of(cacheSize.get() + length);
-    ensureCacheSize();
   }
 
   @Override
@@ -126,11 +124,10 @@ public final class OnDiskBlobStore implements SimpleBlobStore {
       return;
     }
     // TODO(rnabel): delete files if needed.
-    // Reduce size by 10%, once 95% is reached, s.t. disk performance does not impact runtime.
+    // Reduce size by 10%, once 100% is reached. This is to ensure that builds require as little disk IO as possible.
     long _cacheSize = getCacheSize();
-    if (_cacheSize > Math.round(maxCacheSize.get() * upperBound)) {
+    if (_cacheSize > maxCacheSize.get()) {
       // Purging required.
-      // TODO.
       try {
         Collection<Dirent> contents = root.readdir(Symlinks.NOFOLLOW);
         // FIXME should use ImmutableList.
@@ -142,7 +139,6 @@ public final class OnDiskBlobStore implements SimpleBlobStore {
                 // Looks like atime is not available on Windows...
                 // Sort descending by st_ctime.
                 .sorted(Comparator.comparing(e -> ((Path)e).stat().getLastChangeTime()).reversed())
-//                .sorted((entry1, entry2) -> Long.compare(entry2.stat().getLastChangeTime(), entry1.stat().getLastChangeTime()))
                 .collect(Collectors.toList());
         // Delete files until cache size falls below the lowerBound multiplier, starting with the oldest files.
         long requiredSize = Math.round(maxCacheSize.get() * lowerBound);

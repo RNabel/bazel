@@ -188,6 +188,17 @@ public final class RemoteOptions extends OptionsBase {
   public PathFragment diskCache;
 
   @Option(
+    name = "experimental_disk_cache_size",
+    defaultValue = "0",
+    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
+    effectTags = {OptionEffectTag.UNKNOWN},
+    converter = OptionsUtils.PathFragmentConverter.class,
+    help = "The maximum size in GiB of the disk_cache."
+  )
+  // TODO(rnabel): How could this be changed to accept "<number><MB/GB/etc.>"?
+  public long experimentalDiskCacheSize;
+
+  @Option(
     name = "experimental_guard_against_concurrent_changes",
     defaultValue = "false",
     documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,

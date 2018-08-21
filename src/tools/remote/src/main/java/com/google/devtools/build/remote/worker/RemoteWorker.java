@@ -266,7 +266,7 @@ public final class RemoteWorker {
     if (usingRemoteCache) {
       blobStore = SimpleBlobStoreFactory.create(remoteOptions, null, null);
     } else if (remoteWorkerOptions.casPath != null) {
-      blobStore = new OnDiskBlobStore(fs.getPath(remoteWorkerOptions.casPath));
+      blobStore = new OnDiskBlobStore(fs.getPath(remoteWorkerOptions.casPath), options);
     } else if (remoteWorkerOptions.hazelcastStandaloneListenPort != 0) {
       blobStore = createHazelcast(remoteWorkerOptions);
     } else {
